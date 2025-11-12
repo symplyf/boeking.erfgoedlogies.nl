@@ -1,0 +1,21 @@
+services:
+    php:
+        container_name: erfgoed-boeking-api
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+        environment:
+            VIRTUAL_HOST: ${VIRTUAL_HOST}
+        volumes:
+            - .:/var/www
+        networks:
+            - proxy
+            - mysql
+
+networks:
+    proxy:
+        name: docker-proxy
+        external: true
+    mysql:
+        name: docker-mysql
+        external: true

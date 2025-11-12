@@ -1,0 +1,79 @@
+# Stage I: Build dependencies
+
+FROM composer:latest AS composer
+FROM php:8.4-alpine AS php
+
+RUN apk update && apk add \
+    sudo git
+
+# Stage II: Create non-root user
+
+ARG USERNAME=vscode
+ARG USER_UID=1000
+
+RUN addgroup -g ${USER_UID} ${USERNAME} && adduser -u ${USER_UID} -G ${USERNAME} -D ${USERNAME} && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
+    chmod 0440 /etc/sudoers.d/${USERNAME}
+
+# Stage III: Build application
+
+WORKDIR /var/www
+
+COPY . .
+
+RUN docker-php-ext-install opcache
+RUN docker-php-ext-install pdo_mysql
+
+RUN apk update && apk add \
+    oniguruma-dev
+
+RUN docker-php-ext-install mbstring
+
+RUN apk update && apk add \
+    curl \
+    bash
+
+RUN curl -sS https://get.symfony.com/cli/installer | bash && mv /root/.symfony5/bin/symfony /usr/local/bin/symfony
+
+RUN sudo chown -R ${USERNAME}:${USERNAME} .
+
+COPY --from=composer /usr/bin/composer /usr/bin/composer
+RUN [[ -f composer.lock || -f composer.json ]] && composer install || true
+
+# Stage IV: Test application
+
+RUN symfony check:requirements
+
+# Stage V: Enable TLS
+
+RUN symfony server:ca:install
+
+# Stage VI: Create initialization files
+
+RUN echo -e "if [ -f ~/.bashrc ]; then\n\t. ~/.bashrc\nfi" >> ~/.profile && \
+    echo -e "if [ -f ~/.bash_aliases ]; then\n\t. ~/.bash_aliases\nfi" >> ~/.bashrc && \
+    echo -e "if [ -f /etc/motd ]; then\n\tcat /etc/motd\nfi" >> ~/.bashrc
+
+# Stage VII: Set aliases
+
+RUN echo 'alias dev="symfony server:start --allow-all-ip --port 80 --no-tls"' >> ~/.bash_aliases && \
+    echo 'alias d="dev"' >> ~/.bash_aliases
+
+# Stage VIII: Set MOTD
+
+RUN echo -e "\
+    Hi there!\n\n\
+    === Command Cheat Sheet ===\n\n\
+    1. Install dependencies:\n\
+    composer install\n\n\
+    2. Create the database:\n\
+    php bin/console doctrine:database:create\n\n\
+    5. Run tests:\n\
+    ./vendor/bin/phpunit\n\n\
+    7. Start the development server:\n\
+    d\n\n\
+    Good luck and happy coding! 🚀" | sudo tee /etc/motd > /dev/null
+
+# Stage IX: Serve container
+
+CMD ["tail", "-f", "/dev/null"]

@@ -1,0 +1,46 @@
+# Stage I: Build dependencies
+
+FROM composer:latest AS composer
+FROM php:8.4-apache AS php
+
+# Stage II: Build application
+
+WORKDIR /var/www/html
+
+COPY . .
+
+RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+
+RUN a2enmod rewrite
+
+RUN docker-php-ext-install opcache
+RUN docker-php-ext-install pdo_mysql
+
+RUN apt update && apt install -y \
+    libonig-dev
+
+RUN docker-php-ext-install mbstring
+
+RUN apt update && apt install -y \
+    libzip-dev unzip
+
+RUN docker-php-ext-install zip
+
+RUN apt update && apt install -y \
+    git
+
+COPY --from=composer /usr/bin/composer /usr/bin/composer
+RUN [ -f composer.lock ] || [ -f composer.json ] && COMPOSER_ALLOW_SUPERUSER=1 composer install
+
+# Stage III: Build application cache
+
+RUN php bin/console cache:warmup
+
+# Stage IV: Set correct ownership
+
+RUN chown -R www-data:www-data .
